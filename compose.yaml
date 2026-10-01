@@ -10,6 +10,7 @@ x-camera-common: &camera-common
     CAMERA_DATA_ROOT: /data
     ORBBEC_SDK_DIR: /app/third_party/orbbec_sdk
     ORBBEC_HELPER_PATH: /app/build/orbbec_ir_depth_stream
+    IR_PREVIEW_GAMMA: "${IR_PREVIEW_GAMMA:-0.55}"
     CAMERA_BATCH_MAX_AGE_SECONDS: "${CAMERA_BATCH_MAX_AGE_SECONDS:-86400}"
     RETENTION_CLEANUP_INTERVAL_SECONDS: "${RETENTION_CLEANUP_INTERVAL_SECONDS:-3600}"
   volumes:
