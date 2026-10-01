@@ -1,0 +1,25 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+data/*
+!data/.gitkeep
+third_party/orbbec_sdk/Doc/
+third_party/orbbec_sdk/Example/
+third_party/orbbec_sdk/Script/
+frontend/node_modules/
+frontend/dist/
+frontend/public/vendor/
+frontend/*.tsbuildinfo
+deploy/images.env
+deploy/image-backups/
+
+# Local system-design materials
+docs/SYSTEM_CONFIGURATION.md
+docs/MULTI_CAMERA_SYSTEM_CONFIGURATION.md
+docs/SYSTEM_CONFIGURATION_OVERVIEW.pdf
+
+# Local handoff and agent notes
+CHAT_HANDOFF.md
+.agents/

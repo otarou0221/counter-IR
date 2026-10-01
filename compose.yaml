@@ -1,0 +1,155 @@
+name: cardboard-counter-ir
+
+x-camera-common: &camera-common
+  build:
+    context: .
+    dockerfile: docker/camera/Dockerfile
+  image: "${CAMERA_IMAGE:-cardboard-counter-ir-camera:local}"
+  init: true
+  environment:
+    CAMERA_DATA_ROOT: /data
+    ORBBEC_SDK_DIR: /app/third_party/orbbec_sdk
+    ORBBEC_HELPER_PATH: /app/build/orbbec_ir_depth_stream
+    CAMERA_BATCH_MAX_AGE_SECONDS: "${CAMERA_BATCH_MAX_AGE_SECONDS:-86400}"
+    RETENTION_CLEANUP_INTERVAL_SECONDS: "${RETENTION_CLEANUP_INTERVAL_SECONDS:-3600}"
+  volumes:
+    - "${CARDBOARD_DATA_DIR:-./data}:/data"
+    # Orbbec SDKはEthernet接続時にもlibusbを初期化するため必要。
+    - "/dev/bus/usb:/dev/bus/usb:ro"
+  expose: ["8001"]
+  restart: unless-stopped
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+    image: "${WEB_IMAGE:-cardboard-counter-ir-web:local}"
+    init: true
+    ports:
+      - "${CARDBOARD_V2_PORT:-50072}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [public, internal]
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    image: "${API_IMAGE:-cardboard-counter-ir-api:local}"
+    init: true
+    environment:
+      CARDBOARD_DATA_ROOT: /data
+      CAMERA_SERVICE_URL: http://camera:8001
+      MEASUREMENT_SERVICE_URL: http://measurement:8002
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: "${POSTGRES_DB:-cardboard_counter}"
+      POSTGRES_USER: "${POSTGRES_USER:-cardboard_api}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-change-me}"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USERNAME: "${SMTP_USERNAME:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+      SMTP_SECURITY: "${SMTP_SECURITY:-starttls}"
+      SMTP_TIMEOUT_SECONDS: "${SMTP_TIMEOUT_SECONDS:-10}"
+      LOW_STOCK_EMAIL_TO: "${LOW_STOCK_EMAIL_TO:-}"
+      CURRENT_CAPTURE_MAX_PER_CAMERA: "${CURRENT_CAPTURE_MAX_PER_CAMERA:-2100}"
+      DB_RETENTION_CLEANUP_INTERVAL_SECONDS: "${DB_RETENTION_CLEANUP_INTERVAL_SECONDS:-86400}"
+    volumes:
+      - "${CARDBOARD_DATA_DIR:-./data}:/data"
+    ports:
+      - "127.0.0.1:${CARDBOARD_API_PORT:-58100}:8000"
+    expose: ["8000"]
+    depends_on:
+      measurement:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks: [internal, database, api-host]
+    restart: unless-stopped
+
+  postgres:
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+      args:
+        POSTGRES_RUNTIME_UID: "${POSTGRES_RUNTIME_UID:-1000}"
+        POSTGRES_RUNTIME_GID: "${POSTGRES_RUNTIME_GID:-1000}"
+    image: "${POSTGRES_IMAGE:-cardboard-counter-ir-postgres:local}"
+    init: true
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-cardboard_counter}"
+      POSTGRES_USER: "${POSTGRES_USER:-cardboard_api}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-change-me}"
+    volumes:
+      - "${CARDBOARD_DATA_DIR:-./data}/database:/var/lib/postgresql/data"
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-55532}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [database, postgres-host]
+    restart: unless-stopped
+
+  # camera-service:begin
+  camera:
+    <<: *camera-common
+    ports:
+      - "127.0.0.1:${CAMERA_SERVICE_HOST_PORT:-58101}:8001"
+    networks:
+      internal:
+        aliases: [camera-1]
+      camera-lan:
+
+  camera-2:
+    <<: *camera-common
+    ports:
+      - "127.0.0.1:${CAMERA_2_SERVICE_HOST_PORT:-58103}:8001"
+    networks: [internal, camera-lan]
+
+  # camera-service:end
+
+  measurement:
+    build:
+      context: .
+      dockerfile: docker/measurement/Dockerfile
+    image: "${MEASUREMENT_IMAGE:-cardboard-counter-ir-measurement:local}"
+    init: true
+    environment:
+      CARDBOARD_DATA_ROOT: /data
+      POTREE_CONVERTER_PATH: /usr/local/bin/PotreeConverter
+      RETENTION_CLEANUP_INTERVAL_SECONDS: "${RETENTION_CLEANUP_INTERVAL_SECONDS:-3600}"
+    volumes:
+      - "${CARDBOARD_DATA_DIR:-./data}:/data"
+    ports:
+      - "127.0.0.1:${MEASUREMENT_SERVICE_HOST_PORT:-58102}:8002"
+    expose: ["8002"]
+    networks: [internal, measurement-host]
+    restart: unless-stopped
+
+networks:
+  public:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true
+  camera-lan:
+    driver: bridge
+  database:
+    driver: bridge
+    internal: true
+  # internal networkだけではDockerがhost port publishingを無効化するため、
+  # 開発・保守用ポートごとに共有相手のいないbridgeを割り当てる。
+  api-host:
+    driver: bridge
+  measurement-host:
+    driver: bridge
+  postgres-host:
+    driver: bridge
