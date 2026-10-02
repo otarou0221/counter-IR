@@ -114,7 +114,8 @@ def save_measurement_artifacts(
             point_count=len(height_filled.uvh),
             title="高さ充填ポイントクラウド",
             description=(
-                "採用した10mmセルをパレット面から測定高まで表示用に充填。"
+                f"採用した{geometry.cell_size_mm:g}mmセルを"
+                "パレット面から測定高まで表示用に充填。"
                 f"縦方向の表示間隔は{height_filled.vertical_step_mm:g}mm"
             ),
             height_range_mm=(0.0, height_filled.maximum_height_mm),
@@ -124,6 +125,7 @@ def save_measurement_artifacts(
     write_artifact_index(
         plot_path,
         summary=summary,
+        cell_size_mm=geometry.cell_size_mm,
         volume_relative_url=volume_path.name,
         point_cloud_relative_url=point_cloud_path.name,
         height_filled_relative_url=height_filled_path.name,

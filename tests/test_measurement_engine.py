@@ -61,7 +61,10 @@ def write_capture(
     )
 
 
-def test_measurement_uses_empty_roi_plane_method(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("grid_mm", [10, 20])
+def test_measurement_uses_empty_roi_plane_method(
+    tmp_path: Path, monkeypatch, grid_mm: int
+) -> None:
     monkeypatch.setenv("CARDBOARD_DATA_ROOT", str(tmp_path))
     shape = (120, 120)
     baseline = np.full(shape, 1_000.0, dtype=np.float32)
@@ -101,7 +104,7 @@ def test_measurement_uses_empty_roi_plane_method(tmp_path: Path, monkeypatch) ->
     calibration = calibrate(
         CalibrationRequest(
             baseline_capture_id="empty", baseline_capture=captures["empty"],
-            pallets=[pallet], grid_mm=10,
+            pallets=[pallet], grid_mm=grid_mm,
         )
     )
     result = measure(
@@ -111,7 +114,7 @@ def test_measurement_uses_empty_roi_plane_method(tmp_path: Path, monkeypatch) ->
             current_capture=captures["current"],
             pallets=[pallet],
             box_catalog=box_catalog,
-            grid_mm=10,
+            grid_mm=grid_mm,
             occupied_height_mm=30,
             generate_debug_stages=True,
         )
@@ -133,7 +136,7 @@ def test_measurement_uses_empty_roi_plane_method(tmp_path: Path, monkeypatch) ->
     assert "2 現在フレーム候補" in debug_html
     assert "6 最終体積" in debug_html
     assert "type:'mesh3d'" in debug_html
-    assert "10mmセル柱状体積" in debug_html
+    assert f"{grid_mm}mmセル柱状体積" in debug_html
     assert "高さカラーマップ" in debug_html
     assert "ポイントクラウド" in debug_html
     assert "背景＋処理対象を赤強調" in debug_html
@@ -147,13 +150,14 @@ def test_measurement_uses_empty_roi_plane_method(tmp_path: Path, monkeypatch) ->
     assert "cdn.plot.ly" not in debug_html
     pallet_dir = (tmp_path / result.pallets[0].plot_path).parent
     plot_html = (pallet_dir / "plot.html").read_text(encoding="utf-8")
-    assert "10mmセルの柱状体積" in plot_html
+    assert f"{grid_mm}mmセルの柱状体積" in plot_html
     assert "周辺＋体積推定領域ポイントクラウド（Potree）" in plot_html
     assert "高さ充填ポイントクラウド（Potree）" in plot_html
     assert "volume.html" in plot_html
     assert "point_cloud.html" in plot_html
     assert "height_filled.html" in plot_html
     volume_html = (pallet_dir / "volume.html").read_text(encoding="utf-8")
+    assert f"{grid_mm}mmセル柱状体積" in volume_html
     assert "最終柱状体積" in volume_html
     assert "type:'mesh3d'" in volume_html
     assert 'src="/vendor/plotly/plotly.min.js"' in volume_html
@@ -178,6 +182,7 @@ def test_measurement_uses_empty_roi_plane_method(tmp_path: Path, monkeypatch) ->
         encoding="utf-8"
     )
     assert "段階別ポイントクラウド" in debug_point_html
+    assert f"4 {grid_mm}mm高さグリッド" in debug_point_html
     assert 'activeAttributeName="rgba"' in debug_point_html
     assert 'activeAttributeName="color"' in debug_point_html
     assert "表面点群" in debug_point_html

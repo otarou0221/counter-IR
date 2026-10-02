@@ -93,7 +93,7 @@ def write_height_plot(
         "const volume={type:'mesh3d',x:p.volume.x,y:p.volume.y,z:p.volume.z,"
         "i:p.volume.i,j:p.volume.j,k:p.volume.k,intensity:p.volume.z,intensitymode:'vertex',"
         "colorscale:heightColors,colorbar:{title:'高さ mm'},flatshading:true,"
-        "lighting:{ambient:.7,diffuse:.8,specular:.15,roughness:.8},name:'10mmセル柱状体積'};"
+        f"lighting:{{ambient:.7,diffuse:.8,specular:.15,roughness:.8}},name:'{grid_mm:g}mmセル柱状体積'}};"
         "const outline={type:'scatter3d',mode:'lines',x:p.outline_u,y:p.outline_v,"
         "z:p.outline_u.map(()=>0),line:{color:'#00bcd4',width:8},name:'パレット外周'};"
         "const excluded={type:'scatter3d',mode:'markers',x:p.excluded_u,y:p.excluded_v,z:p.excluded_h,"
@@ -175,7 +175,7 @@ def write_debug_stages_plot(
         '<div class="steps"></div><div id="plot"></div><iframe id="point-view" title="段階別ポイントクラウド"></iframe>'
         f'<script>const p={json.dumps(payload, ensure_ascii=False, separators=(",", ":"))};'
         f'const pointUrl={json.dumps(point_cloud_relative_url)};'
-        "const names=['1 生点群','2 現在フレーム候補','3 側面除外・平面投影・外周制限','4 10mm高さグリッド','5 局所突起除外','6 最終体積'];"
+        f"const names=['1 生点群','2 現在フレーム候補','3 側面除外・平面投影・外周制限','4 {grid_mm:g}mm高さグリッド','5 局所突起除外','6 最終体積'];"
         "const steps=document.querySelector('.steps');let activeStage=0,displayMode='map',colorMode='actual',shapeMode='solid';"
         "names.forEach((n,i)=>{const b=document.createElement('button');b.textContent=n;b.onclick=()=>setStage(i);steps.appendChild(b)});"
         "const scatter=(q,name,color)=>({type:'scatter3d',mode:'markers',x:q.x,y:q.y,z:q.z,"
@@ -198,7 +198,7 @@ def write_debug_stages_plot(
         "else if(i===4){traces=[surface(p.corrected,'補正後高さ'),outline];traces.push({type:'scatter3d',mode:'markers',"
         "x:p.excluded_u,y:p.excluded_v,z:p.excluded_h,marker:{size:4,color:'#7b2cbf'},name:'除外点'});title=names[i];"
         "axes={xaxis:{title:'U mm'},yaxis:{title:'V mm'},zaxis:{title:'高さ mm'}}}"
-        "else {traces=[volume('10mmセル柱状体積'),outline];title=names[i];"
+        f"else {{traces=[volume('{grid_mm:g}mmセル柱状体積'),outline];title=names[i];"
         "axes={xaxis:{title:'U mm'},yaxis:{title:'V mm'},zaxis:{title:'高さ mm'}}}"
         "[...steps.children].forEach((b,j)=>b.classList.toggle('active',j===i));"
         "Plotly.react('plot',traces,{title,scene:{...axes,aspectmode:'data',camera:{eye:{x:1.45,y:1.45,z:1.05}}},"

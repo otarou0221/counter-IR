@@ -20,6 +20,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from cardboard_counter_v2.common.measurement_defaults import DEFAULT_HEIGHT_GRID_MM
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
@@ -364,7 +366,9 @@ class MeasurementSettingsRecord(Base):
     )
     floor_frame_count: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     warmup_frames: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
-    grid_mm: Mapped[float] = mapped_column(Float, nullable=False, default=10.0)
+    grid_mm: Mapped[float] = mapped_column(
+        Float, nullable=False, default=DEFAULT_HEIGHT_GRID_MM
+    )
     pallet_height_mm: Mapped[float] = mapped_column(
         Float, nullable=False, default=150.0
     )

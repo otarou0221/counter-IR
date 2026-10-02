@@ -16,6 +16,7 @@ from cardboard_counter_v2.common.box_catalog import (
     migrate_legacy_box_settings,
     validate_box_selections,
 )
+from cardboard_counter_v2.common.measurement_defaults import DEFAULT_HEIGHT_GRID_MM
 from cardboard_counter_v2.common.pallet_layout import (
     PALLETS_PER_CAMERA,
     normalize_fixed_pallet_layout,
@@ -228,7 +229,7 @@ class SystemSettings(BaseModel):
     measurement_frame_count: int = Field(default=1, ge=1, le=120)
     measurement_concurrency: int = Field(default=3, ge=1, le=100)
     warmup_frames: int = Field(default=5, ge=0, le=60)
-    grid_mm: float = Field(default=10.0, ge=2.0, le=50.0)
+    grid_mm: float = Field(default=DEFAULT_HEIGHT_GRID_MM, ge=2.0, le=50.0)
     pallet_height_mm: float = Field(default=150.0, gt=0, le=500.0)
     occupied_height_mm: float = Field(default=30.0, ge=1.0)
     monitor_interval_seconds: float = Field(
@@ -386,7 +387,7 @@ class CalibrationRequest(BaseModel):
     baseline_capture_id: str
     baseline_capture: CaptureManifest | None = None
     pallets: list[PalletSettings]
-    grid_mm: float = Field(default=10.0, ge=2.0, le=50.0)
+    grid_mm: float = Field(default=DEFAULT_HEIGHT_GRID_MM, ge=2.0, le=50.0)
     pallet_height_mm: float = Field(default=150.0, gt=0, le=500.0)
 
 
@@ -443,7 +444,7 @@ class MeasurementRequest(BaseModel):
     current_capture: CaptureManifest | None = None
     pallets: list[PalletSettings] = Field(default_factory=list)
     box_catalog: list[BoxClassSpec] = Field(default_factory=default_box_catalog)
-    grid_mm: float = Field(default=10.0, ge=2.0, le=50.0)
+    grid_mm: float = Field(default=DEFAULT_HEIGHT_GRID_MM, ge=2.0, le=50.0)
     occupied_height_mm: float = Field(default=30.0, ge=1.0)
     generate_artifacts: bool = True
     generate_debug_stages: bool = False

@@ -207,6 +207,7 @@ def write_artifact_index(
     path: Path,
     *,
     summary: dict[str, object],
+    cell_size_mm: float,
     volume_relative_url: str,
     point_cloud_relative_url: str,
     height_filled_relative_url: str,
@@ -227,7 +228,7 @@ def write_artifact_index(
         'iframe{display:block;width:100%;height:calc(100% - 92px);border:0;background:white}'
         '</style></head><body>'
         f'<div class="summary">{summary_text}</div>'
-        '<div class="views"><button data-view="volume">10mmセルの柱状体積</button>'
+        f'<div class="views"><button data-view="volume">{cell_size_mm:g}mmセルの柱状体積</button>'
         '<button data-view="points">周辺＋体積推定領域ポイントクラウド（Potree）</button>'
         '<button data-view="filled">高さ充填ポイントクラウド（Potree）</button></div>'
         '<iframe id="viewer" title="3D診断"></iframe><script>'

@@ -113,7 +113,7 @@ def build_debug_point_cloud_bundle(
             DebugPointCloudStage("projected", "3 側面除外・平面投影・外周制限", projected),
             DebugPointCloudStage(
                 "grid",
-                "4 10mm高さグリッド",
+                f"4 {geometry.cell_size_mm:g}mm高さグリッド",
                 original_grid,
                 solid_cloud=original_filled,
                 solid_key="grid_filled",

@@ -2,7 +2,13 @@ import pytest
 from pydantic import ValidationError
 
 from cardboard_counter_v2.common.planar_calibration import PlanarRegionCalibration
-from cardboard_counter_v2.common.schemas import CameraSettings, PalletSettings, SystemSettings
+from cardboard_counter_v2.common.schemas import (
+    CalibrationRequest,
+    CameraSettings,
+    MeasurementRequest,
+    PalletSettings,
+    SystemSettings,
+)
 
 
 def test_measurement_method_is_fixed() -> None:
@@ -11,6 +17,16 @@ def test_measurement_method_is_fixed() -> None:
 
     with pytest.raises(ValidationError):
         SystemSettings(method="roi_median")
+
+
+def test_ir_default_grid_is_20mm_and_older_grid_can_be_loaded() -> None:
+    assert SystemSettings().grid_mm == 20.0
+    assert CalibrationRequest(baseline_capture_id="floor", pallets=[]).grid_mm == 20.0
+    assert (
+        MeasurementRequest(current_capture_id="current", runtime_id="calibration").grid_mm
+        == 20.0
+    )
+    assert SystemSettings(grid_mm=10).grid_mm == 10.0
 
 
 def test_monitor_interval_is_bounded() -> None:
