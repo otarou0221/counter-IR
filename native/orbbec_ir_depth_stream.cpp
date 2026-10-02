@@ -232,15 +232,35 @@ PipelineSetup preparePipeline(ob::Pipeline &pipe, const Options &options) {
     }
     setup.config->enableStream(setup.irProfile);
     setup.config->enableStream(setup.depthProfile);
-    // Publish only complete Active IR/depth pairs from the same FrameSet.
-    setup.config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_FULL_FRAME_REQUIRE);
+    // FULL_FRAME_REQUIRE truncates WFOV depth on the current Femto Mega/SDK.
+    // Accept SDK FrameSets as they arrive; the mailbox keeps synchronized pairs.
+    setup.config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ANY_SITUATION);
     return setup;
 }
+
+constexpr uint64_t kMaxPairTimestampDifferenceUs = 10000;
 
 class LatestFrameSetMailbox {
 public:
     void publish(std::shared_ptr<ob::FrameSet> frameSet) {
         if(frameSet == nullptr) {
+            return;
+        }
+        auto irFrame = frameSet->irFrame();
+        auto depthFrame = frameSet->depthFrame();
+        if(irFrame == nullptr || depthFrame == nullptr) {
+            return;
+        }
+        const uint64_t irTimeUs = irFrame->timeStampUs();
+        const uint64_t depthTimeUs = depthFrame->timeStampUs();
+        if(irTimeUs == 0 || depthTimeUs == 0) {
+            return;
+        }
+        const uint64_t timeDifferenceUs = irTimeUs > depthTimeUs
+            ? irTimeUs - depthTimeUs : depthTimeUs - irTimeUs;
+        // At 15 fps, adjacent captures are about 67 ms apart. Reject mismatched
+        // exposures while allowing small timestamp jitter from other profiles.
+        if(timeDifferenceUs > kMaxPairTimestampDifferenceUs) {
             return;
         }
         {
@@ -286,7 +306,7 @@ int streamFrames(ob::Pipeline &pipe, const PipelineSetup &setup, const Options &
         if(frameSet == nullptr) {
             emptyWaits++;
             if(emptyWaits * options.timeoutMs >= 15000) {
-                std::cerr << "No complete IR/depth pair received for " << emptyWaits * options.timeoutMs << " ms" << std::endl;
+                std::cerr << "No synchronized IR/depth pair received for " << emptyWaits * options.timeoutMs << " ms" << std::endl;
                 pipe.stop();
                 return 3;
             }
@@ -296,8 +316,7 @@ int streamFrames(ob::Pipeline &pipe, const PipelineSetup &setup, const Options &
         auto irFrame = frameSet->irFrame();
         auto depthFrame = frameSet->depthFrame();
         if(irFrame == nullptr || depthFrame == nullptr) {
-            // FULL_FRAME_REQUIRE should prevent this, but keep the process safe if a
-            // device or SDK version violates that contract.
+            // The mailbox filters incomplete sets; retain this safety check.
             continue;
         }
 
@@ -347,7 +366,7 @@ int main(int argc, char **argv) try {
     writeIntrinsicsMetadata(setup.irProfile, setup.depthProfile);
     std::cerr << "Starting Orbbec Active IR/depth streams" << std::endl;
     // The official network-device sample uses the callback API. Keep SDK-owned
-    // acquisition work in that callback and process only the latest complete pair.
+    // acquisition work in that callback and process only the latest synchronized pair.
     std::cerr << "Waiting for Orbbec frames" << std::endl;
     return streamFrames(pipe, setup, options);
 }
