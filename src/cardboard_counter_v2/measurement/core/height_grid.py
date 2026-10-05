@@ -9,6 +9,9 @@ import numpy as np
 from cardboard_counter_v2.measurement.core.pallet_geometry import PalletProjectionGeometry
 
 
+DEFAULT_MIN_POINTS_PER_CELL = 2
+
+
 @dataclass(frozen=True)
 class SurfaceNormalMap:
     """現在XYZから測定単位で1度だけ作る局所法線。"""
@@ -207,9 +210,9 @@ def _robust_height_grid(
     *,
     shape: tuple[int, int],
     quantile: float = 0.75,
-    min_points: int = 3,
+    min_points: int = DEFAULT_MIN_POINTS_PER_CELL,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """セル内の孤立点を捨て、新方式固定の上側75%分位点を採用する。"""
+    """1点だけのセルを捨て、採用セルでは上側75%分位点を使う。"""
     _grid_height, grid_width = shape
     grid = np.zeros(shape, dtype=np.float32)
     observed = np.zeros(shape, dtype=bool)
