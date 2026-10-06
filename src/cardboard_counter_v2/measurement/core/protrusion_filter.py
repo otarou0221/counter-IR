@@ -1,4 +1,4 @@
-"""折り畳み看板とパレット境界の薄い壁を高さグリッドから除外する。"""
+"""固定寸法の看板と基準箱に対して小さい突起・境界壁を除外する。"""
 
 from __future__ import annotations
 
@@ -36,14 +36,25 @@ class HeightProtrusionFilterResult:
 
 @dataclass(frozen=True)
 class ProtrusionShapeRules:
-    """箱寸法に対する除外候補の相対形状ルール。"""
+    """小物を基準箱の寸法と比較するルール。"""
 
     minimum_area_ratio: float = 0.04
     maximum_area_ratio: float = 0.35
     small_object_max_span_ratio: float = 0.8
-    folded_sign_max_short_span_ratio: float = 0.57
-    folded_sign_max_long_span_ratio: float = 1.0
-    folded_sign_min_aspect_ratio: float = 1.8
+
+
+@dataclass(frozen=True)
+class FixedSignRules:
+    """基準箱の寸法に依存しない看板の実寸ルール。"""
+
+    attached_min_area_mm2: float = 35_000.0
+    attached_max_area_mm2: float = 60_000.0
+    attached_max_short_span_mm: float = 180.0
+    attached_max_long_span_mm: float = 500.0
+    attached_min_aspect_ratio: float = 2.3
+    attached_opening_mm: float = 300.0
+    attached_prominence_mm: float = 60.0
+    attached_weak_prominence_mm: float = 20.0
     isolated_sign_min_short_span_mm: float = 130.0
     isolated_sign_max_short_span_mm: float = 340.0
     isolated_sign_min_long_span_mm: float = 350.0
@@ -58,6 +69,7 @@ class ProtrusionShapeRules:
 
 
 DEFAULT_SHAPE_RULES = ProtrusionShapeRules()
+DEFAULT_SIGN_RULES = FixedSignRules()
 
 
 def suppress_small_height_protrusions(
@@ -69,8 +81,9 @@ def suppress_small_height_protrusions(
     box_depth_mm: float,
     prominence_mm: float = 60.0,
     shape_rules: ProtrusionShapeRules = DEFAULT_SHAPE_RULES,
+    sign_rules: FixedSignRules = DEFAULT_SIGN_RULES,
 ) -> HeightProtrusionFilterResult:
-    """箱より小さい局所突起と境界の薄い壁帯を下地面まで下げる。"""
+    """看板を固定実寸で、小物と境界壁を基準箱の寸法で除外する。"""
     heights = np.asarray(height_grid, dtype=np.float32)
     region = np.asarray(region_mask, dtype=bool)
     if heights.ndim != 2 or region.shape != heights.shape:
@@ -81,14 +94,14 @@ def suppress_small_height_protrusions(
     box_width = max(float(box_width_mm), 0.0)
     box_depth = max(float(box_depth_mm), 0.0)
     active = region & np.isfinite(heights) & (heights > 0)
-    if not np.any(active) or box_width <= 0 or box_depth <= 0:
+    if not np.any(active):
         return HeightProtrusionFilterResult(corrected, suppressed, 0, 0, 0.0)
 
     isolated_signs, isolated_sign_count = _isolated_fixed_signs(
         heights,
         active,
         cell_size_mm=cell,
-        rules=shape_rules,
+        rules=sign_rules,
     )
     if np.any(isolated_signs):
         corrected[isolated_signs] = 0.0
@@ -104,137 +117,212 @@ def suppress_small_height_protrusions(
         )
 
     source = np.where(local_active, heights, 0.0).astype(np.float32)
+    # 補間は撮影ごとに1回だけ行い、固定看板と箱基準の除外で共有する。
     filled = cv2.inpaint(
         source,
         (~local_active).astype(np.uint8),
         max(int(round(50.0 / cell)), 1),
         cv2.INPAINT_TELEA,
     )
-    kernel_cells = max(int(round(min(box_width, box_depth) * 0.75 / cell)), 3)
-    if kernel_cells % 2 == 0:
-        kernel_cells += 1
-    max_kernel = min(heights.shape)
-    if max_kernel % 2 == 0:
-        max_kernel -= 1
-    kernel_cells = min(kernel_cells, max_kernel)
-    if kernel_cells < 3:
-        return _result(
-            heights,
-            corrected,
-            suppressed,
-            component_count=isolated_sign_count,
-            cell_size_mm=cell,
-        )
-    kernel = ellipse_kernel(kernel_cells)
-    base_surface = cv2.morphologyEx(filled, cv2.MORPH_OPEN, kernel)
-    residual = heights - base_surface
-    strong = local_active & (residual >= max(float(prominence_mm), 1.0))
-    if not np.any(strong):
-        return _result(
-            heights,
-            corrected,
-            suppressed,
-            component_count=isolated_sign_count,
-            cell_size_mm=cell,
-        )
-
-    component_total, labels, component_stats, _centroids = (
-        cv2.connectedComponentsWithStats(strong.astype(np.uint8), connectivity=8)
+    sign_corrected, sign_mask, attached_sign_count = _suppress_attached_fixed_signs(
+        heights, local_active, filled, cell_size_mm=cell, rules=sign_rules,
     )
-    box_area_mm2 = box_width * box_depth
-    min_area_mm2 = box_area_mm2 * shape_rules.minimum_area_ratio
-    max_area_mm2 = box_area_mm2 * shape_rules.maximum_area_ratio
-    expansion_cells = max(int(math.ceil(30.0 / cell)), 1)
-    expansion = expansion_kernel(expansion_cells)
-    weak = local_active & (residual >= max(float(prominence_mm) / 3.0, 15.0))
-    surrounding_surface = np.full(heights.shape, -np.inf, dtype=np.float32)
-    kept_components = 0
-    for label in range(1, component_total):
-        x, y, width, height, area_cells = component_stats[label]
-        area_mm2 = float(area_cells) * cell * cell
+    box_corrected, box_mask, box_component_count = _suppress_box_relative_protrusions(
+        heights, local_active, filled,
+        cell_size_mm=cell,
+        box_width_mm=box_width,
+        box_depth_mm=box_depth,
+        prominence_mm=prominence_mm,
+        rules=shape_rules,
+    )
+    corrected = np.minimum(corrected, np.minimum(sign_corrected, box_corrected))
+    suppressed |= sign_mask | box_mask
+    return _result(
+        heights,
+        corrected,
+        suppressed,
+        component_count=isolated_sign_count + attached_sign_count + box_component_count,
+        cell_size_mm=cell,
+    )
+
+
+def _opening_kernel_size(
+    diameter_mm: float,
+    *,
+    cell_size_mm: float,
+    grid_shape: tuple[int, int],
+) -> int:
+    size = max(int(round(diameter_mm / cell_size_mm)), 3)
+    if size % 2 == 0:
+        size += 1
+    maximum = min(grid_shape)
+    if maximum % 2 == 0:
+        maximum -= 1
+    return min(size, maximum)
+
+
+def _suppress_attached_fixed_signs(
+    heights: np.ndarray,
+    active: np.ndarray,
+    filled: np.ndarray,
+    *,
+    cell_size_mm: float,
+    rules: FixedSignRules,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """箱面に接した細長い看板を、固定実寸の形状と周囲高さで判定する。"""
+    corrected = heights.copy()
+    suppressed = np.zeros(heights.shape, dtype=bool)
+    kernel_size = _opening_kernel_size(
+        rules.attached_opening_mm,
+        cell_size_mm=cell_size_mm,
+        grid_shape=heights.shape,
+    )
+    if kernel_size < 3:
+        return corrected, suppressed, 0
+    base_surface = cv2.morphologyEx(
+        filled, cv2.MORPH_OPEN, ellipse_kernel(kernel_size)
+    )
+    residual = heights - base_surface
+    strong = active & (residual >= rules.attached_prominence_mm)
+    if not np.any(strong):
+        return corrected, suppressed, 0
+    weak = active & (residual >= rules.attached_weak_prominence_mm)
+    total, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        strong.astype(np.uint8), connectivity=8
+    )
+    expansion = expansion_kernel(max(int(math.ceil(30.0 / cell_size_mm)), 1))
+    count = 0
+    for label in range(1, total):
         component = labels == label
-        is_shape_candidate = min_area_mm2 <= area_mm2 <= max_area_mm2
-        if is_shape_candidate:
+        area_mm2 = float(stats[label, cv2.CC_STAT_AREA]) * cell_size_mm**2
+        if not (rules.attached_min_area_mm2 <= area_mm2 <= rules.attached_max_area_mm2):
+            continue
+        short_span_mm, long_span_mm = oriented_mask_spans(
+            component, cell_size_mm=cell_size_mm
+        )
+        if not _is_fixed_attached_sign(short_span_mm, long_span_mm, rules=rules):
+            continue
+        expanded = cv2.dilate(component.astype(np.uint8), expansion).astype(bool)
+        candidate = expanded & weak
+        surrounding_level = _highest_supported_surrounding_level(
+            heights, candidate, active, cell_size_mm=cell_size_mm
+        )
+        if surrounding_level is None:
+            continue
+        corrected[candidate] = np.minimum(
+            corrected[candidate],
+            np.maximum(base_surface[candidate], surrounding_level),
+        )
+        suppressed |= candidate
+        count += 1
+    return corrected, suppressed, count
+
+
+def _is_fixed_attached_sign(
+    short_span_mm: float,
+    long_span_mm: float,
+    *,
+    rules: FixedSignRules,
+) -> bool:
+    return (
+        short_span_mm > 0
+        and short_span_mm <= rules.attached_max_short_span_mm
+        and long_span_mm <= rules.attached_max_long_span_mm
+        and long_span_mm / short_span_mm >= rules.attached_min_aspect_ratio
+    )
+
+
+def _suppress_box_relative_protrusions(
+    heights: np.ndarray,
+    active: np.ndarray,
+    filled: np.ndarray,
+    *,
+    cell_size_mm: float,
+    box_width_mm: float,
+    box_depth_mm: float,
+    prominence_mm: float,
+    rules: ProtrusionShapeRules,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """小物とパレット境界の薄い壁だけを、基準箱の寸法で判定する。"""
+    corrected = heights.copy()
+    suppressed = np.zeros(heights.shape, dtype=bool)
+    if box_width_mm <= 0 or box_depth_mm <= 0:
+        return corrected, suppressed, 0
+    kernel_size = _opening_kernel_size(
+        min(box_width_mm, box_depth_mm) * 0.75,
+        cell_size_mm=cell_size_mm,
+        grid_shape=heights.shape,
+    )
+    if kernel_size < 3:
+        return corrected, suppressed, 0
+    base_surface = cv2.morphologyEx(
+        filled, cv2.MORPH_OPEN, ellipse_kernel(kernel_size)
+    )
+    residual = heights - base_surface
+    strong = active & (residual >= max(float(prominence_mm), 1.0))
+    if not np.any(strong):
+        return corrected, suppressed, 0
+
+    total, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        strong.astype(np.uint8), connectivity=8
+    )
+    box_area_mm2 = box_width_mm * box_depth_mm
+    min_area_mm2 = box_area_mm2 * rules.minimum_area_ratio
+    max_area_mm2 = box_area_mm2 * rules.maximum_area_ratio
+    expansion = expansion_kernel(max(int(math.ceil(30.0 / cell_size_mm)), 1))
+    weak = active & (residual >= max(float(prominence_mm) / 3.0, 15.0))
+    surrounding_surface = np.full(heights.shape, -np.inf, dtype=np.float32)
+    count = 0
+    for label in range(1, total):
+        x, y, width, height, area_cells = stats[label]
+        area_mm2 = float(area_cells) * cell_size_mm**2
+        component = labels == label
+        is_small_object = False
+        if min_area_mm2 <= area_mm2 <= max_area_mm2:
             short_span_mm, long_span_mm = oriented_mask_spans(
-                component,
-                cell_size_mm=cell,
+                component, cell_size_mm=cell_size_mm
             )
             is_small_object = _is_small_height_object(
                 short_span_mm=short_span_mm,
                 long_span_mm=long_span_mm,
                 area_mm2=area_mm2,
-                box_width_mm=box_width,
-                box_depth_mm=box_depth,
+                box_width_mm=box_width_mm,
+                box_depth_mm=box_depth_mm,
                 minimum_area_mm2=min_area_mm2,
                 maximum_area_mm2=max_area_mm2,
-                rules=shape_rules,
+                rules=rules,
             )
-            is_folded_sign = _is_elongated_folded_sign(
-                short_span_mm=short_span_mm,
-                long_span_mm=long_span_mm,
-                area_mm2=area_mm2,
-                box_width_mm=box_width,
-                box_depth_mm=box_depth,
-                minimum_area_mm2=min_area_mm2,
-                maximum_area_mm2=max_area_mm2,
-                rules=shape_rules,
-            )
-        else:
-            is_small_object = False
-            is_folded_sign = False
         is_boundary_ribbon = _is_boundary_height_ribbon(
-            x=int(x),
-            y=int(y),
-            width=int(width),
-            height=int(height),
-            area_mm2=area_mm2,
-            residual_mm=residual[component],
-            grid_shape=heights.shape,
-            cell_size_mm=cell,
-            box_width_mm=box_width,
-            box_depth_mm=box_depth,
+            x=int(x), y=int(y), width=int(width), height=int(height),
+            area_mm2=area_mm2, residual_mm=residual[component],
+            grid_shape=heights.shape, cell_size_mm=cell_size_mm,
+            box_width_mm=box_width_mm, box_depth_mm=box_depth_mm,
             prominence_mm=prominence_mm,
         )
-        if not is_small_object and not is_folded_sign and not is_boundary_ribbon:
+        if not is_small_object and not is_boundary_ribbon:
             continue
-        expanded = cv2.dilate(
-            component.astype(np.uint8), expansion
-        ).astype(bool)
+        expanded = cv2.dilate(component.astype(np.uint8), expansion).astype(bool)
         candidate = expanded & weak
         surrounding_level = _highest_supported_surrounding_level(
-            heights,
-            candidate,
-            local_active,
-            cell_size_mm=cell,
+            heights, candidate, active, cell_size_mm=cell_size_mm
         )
         if surrounding_level is None:
-            # 箱上面を安全に決められない看板候補は、深く削るより残す。
-            # パレット境界の壁帯だけは従来どおり形態学的な下地へ戻す。
+            # 境界の壁は、周囲の箱面が見えない場合も下地へ戻す。
             if not is_boundary_ribbon:
                 continue
         else:
             surrounding_surface[candidate] = np.maximum(
-                surrounding_surface[candidate],
-                surrounding_level,
+                surrounding_surface[candidate], surrounding_level
             )
         suppressed |= candidate
-        kept_components += 1
+        count += 1
 
-    if not np.any(suppressed):
-        return HeightProtrusionFilterResult(corrected, suppressed, 0, 0, 0.0)
-    local_suppressed = suppressed & ~isolated_signs
-    replacement_surface = np.maximum(base_surface, surrounding_surface)
-    corrected[local_suppressed] = np.minimum(
-        heights[local_suppressed],
-        replacement_surface[local_suppressed],
-    )
-    return _result(
-        heights,
-        corrected,
-        suppressed,
-        component_count=isolated_sign_count + kept_components,
-        cell_size_mm=cell,
-    )
+    if np.any(suppressed):
+        replacement_surface = np.maximum(base_surface, surrounding_surface)
+        corrected[suppressed] = np.minimum(
+            heights[suppressed], replacement_surface[suppressed]
+        )
+    return corrected, suppressed, count
 
 
 def _highest_supported_surrounding_level(
@@ -309,7 +397,7 @@ def _isolated_fixed_signs(
     active: np.ndarray,
     *,
     cell_size_mm: float,
-    rules: ProtrusionShapeRules,
+    rules: FixedSignRules,
 ) -> tuple[np.ndarray, int]:
     """箱面と連結していない、固定看板の実測形状に合う成分を選ぶ。"""
     result = np.zeros(active.shape, dtype=bool)
@@ -392,30 +480,6 @@ def _is_small_height_object(
         minimum_area_mm2 <= area_mm2 <= maximum_area_mm2
         and short_span_mm <= short_box * rules.small_object_max_span_ratio
         and long_span_mm <= long_box * rules.small_object_max_span_ratio
-    )
-
-
-def _is_elongated_folded_sign(
-    *,
-    short_span_mm: float,
-    long_span_mm: float,
-    area_mm2: float,
-    box_width_mm: float,
-    box_depth_mm: float,
-    minimum_area_mm2: float,
-    maximum_area_mm2: float,
-    rules: ProtrusionShapeRules,
-) -> bool:
-    """箱と同程度に長くても、明確に細長い折り畳み看板を判定する。"""
-    short_box = min(float(box_width_mm), float(box_depth_mm))
-    long_box = max(float(box_width_mm), float(box_depth_mm))
-    if short_span_mm <= 0:
-        return False
-    return (
-        minimum_area_mm2 <= area_mm2 <= maximum_area_mm2
-        and short_span_mm <= short_box * rules.folded_sign_max_short_span_ratio
-        and long_span_mm <= long_box * rules.folded_sign_max_long_span_ratio
-        and long_span_mm / short_span_mm >= rules.folded_sign_min_aspect_ratio
     )
 
 

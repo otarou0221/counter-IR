@@ -88,10 +88,10 @@ def test_height_grid_has_no_box_layer_height_ceiling() -> None:
     assert result.height_grid[0, 0] == pytest.approx(1_900.0)
 
 
-def test_folded_sign_is_lowered_but_box_top_is_kept() -> None:
+def test_small_object_is_lowered_but_box_top_is_kept() -> None:
     heights = np.full((100, 100), 700.0, dtype=np.float32)
     heights[20:61, 20:77] = 1_035.0  # 570 x 410mmの箱
-    heights[30:48, 32:62] = 1_185.0  # 300 x 180mmの看板
+    heights[30:48, 32:62] = 1_185.0  # 300 x 180mmの小物
 
     result = suppress_small_height_protrusions(
         heights,
@@ -107,7 +107,7 @@ def test_folded_sign_is_lowered_but_box_top_is_kept() -> None:
     assert result.height_grid[25, 25] == 1_035
 
 
-def test_230_by_470mm_folded_sign_is_lowered() -> None:
+def test_230_by_470mm_shape_outside_fixed_sign_limits_is_kept() -> None:
     heights = np.full((100, 100), 1_035.0, dtype=np.float32)
     sign = np.zeros(heights.shape, dtype=np.uint8)
     cv2.rectangle(sign, (25, 25), (69, 45), 1, 2)
@@ -122,8 +122,34 @@ def test_230_by_470mm_folded_sign_is_lowered() -> None:
     )
 
     assert oriented_mask_spans(sign, cell_size_mm=10.0) == (230.0, 470.0)
+    assert result.component_count == 0
+    np.testing.assert_array_equal(result.height_grid, heights)
+
+
+@pytest.mark.parametrize(
+    ("box_width_mm", "box_depth_mm"),
+    [(570.0, 410.0), (450.0, 400.0), (520.0, 330.0), (0.0, 0.0)],
+)
+def test_attached_fixed_sign_is_lowered_independent_of_reference_box(
+    box_width_mm: float,
+    box_depth_mm: float,
+) -> None:
+    heights = np.full((100, 100), 700.0, dtype=np.float32)
+    heights[20:65, 20:77] = 940.0
+    heights[32:44, 24:71] = 1_090.0  # 実寸120 x 470mmの看板
+
+    result = suppress_small_height_protrusions(
+        heights,
+        np.ones(heights.shape, dtype=bool),
+        cell_size_mm=10.0,
+        box_width_mm=box_width_mm,
+        box_depth_mm=box_depth_mm,
+    )
+
     assert result.component_count == 1
-    assert np.median(result.height_grid[sign.astype(bool)]) == 1_035.0
+    assert np.median(result.height_grid[34:42, 27:68]) == 940.0
+    assert result.suppressed_volume_mm3 == pytest.approx(8_460_000.0)
+    assert result.height_grid[25, 25] == 940.0
 
 
 def test_isolated_fixed_sign_is_lowered_to_pallet_surface() -> None:
