@@ -51,7 +51,7 @@ class FixedSignRules:
     attached_max_area_mm2: float = 60_000.0
     attached_max_short_span_mm: float = 180.0
     attached_max_long_span_mm: float = 500.0
-    attached_min_aspect_ratio: float = 2.3
+    attached_min_aspect_ratio: float = 2.29
     attached_opening_mm: float = 300.0
     attached_prominence_mm: float = 60.0
     attached_weak_prominence_mm: float = 20.0
