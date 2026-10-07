@@ -137,7 +137,7 @@ def save_measurement_artifacts(
         debug_cloud_path = output_dir / "debug_point_cloud.html"
         debug_cloud_dir = output_dir / "debug_point_cloud"
         context_metadata: str | None = None
-        if len(debug_point_clouds.context.uvh):
+        if len(debug_point_clouds.context.uvh) > 1:
             context_las = debug_cloud_dir / "context.las"
             context_output = debug_cloud_dir / "context"
             write_rgb_las(
@@ -154,7 +154,7 @@ def save_measurement_artifacts(
             uses_context = stage.key == "raw" and context_metadata is not None
             if uses_context:
                 metadata = context_metadata
-            elif len(stage.cloud.uvh):
+            elif len(stage.cloud.uvh) > 1:
                 stage_las = debug_cloud_dir / f"{stage.key}.las"
                 stage_output = debug_cloud_dir / stage.key
                 write_rgb_las(stage_las, stage.cloud.uvh, stage.cloud.colors_rgb)
@@ -166,7 +166,7 @@ def save_measurement_artifacts(
                 solid_point_count = len(stage.solid_cloud.uvh)
                 if stage.solid_key in solid_metadata_by_key:
                     solid_metadata = solid_metadata_by_key[stage.solid_key]
-                elif solid_point_count:
+                elif solid_point_count > 1:
                     solid_las = debug_cloud_dir / f"{stage.solid_key}.las"
                     solid_output = debug_cloud_dir / stage.solid_key
                     write_rgb_las(
