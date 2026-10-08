@@ -110,7 +110,7 @@ def build_debug_point_cloud_bundle(
         stages=(
             DebugPointCloudStage("raw", "1 生点群", raw),
             DebugPointCloudStage("candidate", "2 現在フレーム候補", candidate),
-            DebugPointCloudStage("projected", "3 側面除外・平面投影・外周制限", projected),
+            DebugPointCloudStage("projected", "3 側面除外・平面投影・外周制限・高所細片除外", projected),
             DebugPointCloudStage(
                 "grid",
                 f"4 {geometry.cell_size_mm:g}mm高さグリッド",

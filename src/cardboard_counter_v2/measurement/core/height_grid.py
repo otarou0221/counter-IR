@@ -6,6 +6,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from cardboard_counter_v2.measurement.core.high_surface_filter import (
+    HighSurfaceFilter,
+    small_high_surface_mask,
+)
 from cardboard_counter_v2.measurement.core.pallet_geometry import PalletProjectionGeometry
 
 
@@ -90,6 +94,7 @@ def height_grid_from_frame(
     *,
     geometry: PalletProjectionGeometry,
     surface_normals: SurfaceNormalMap,
+    high_surface_filter: HighSurfaceFilter | None = None,
     collect_debug: bool = False,
     raw_debug_points: np.ndarray | None = None,
 ) -> HeightGridProjection:
@@ -131,18 +136,13 @@ def height_grid_from_frame(
         & (iy >= 0)
         & (iy < geometry.height)
     )
-    inside_u = u[inside]
-    inside_v = v[inside]
     accepted_pixel_indices = accepted_pixel_indices[inside]
     ix, iy, heights = ix[inside], iy[inside], heights[inside]
     inside_polygon = geometry.pallet_mask[iy, ix]
-    accepted_uvh = (
-        np.column_stack(
-            (inside_u[inside_polygon], inside_v[inside_polygon], heights[inside_polygon])
-        )
-        if np.any(inside_polygon)
-        else np.empty((0, 3), dtype=np.float32)
-    )
+    # 表示用のUVは診断時だけ保持し、通常監視で余分な配列を作らない。
+    if collect_debug:
+        accepted_u = u[inside][inside_polygon]
+        accepted_v = v[inside][inside_polygon]
     accepted_pixel_indices = accepted_pixel_indices[inside_polygon]
     ix, iy, heights = ix[inside_polygon], iy[inside_polygon], heights[inside_polygon]
     height_grid, observed_mask, grid_pixel_indices = _robust_height_grid(
@@ -152,6 +152,27 @@ def height_grid_from_frame(
         accepted_pixel_indices,
         shape=(geometry.height, geometry.width),
     )
+    if high_surface_filter is not None:
+        discarded = small_high_surface_mask(
+            height_grid,
+            observed_mask & geometry.pallet_mask,
+            cell_size_mm=geometry.cell_size_mm,
+            rule=high_surface_filter,
+        )
+        if np.any(discarded):
+            # 高い元点だけを外す。セル内の低い有効点は再集計して残す。
+            keep = ~(discarded[iy, ix] & (heights > high_surface_filter.start_height_mm))
+            ix, iy, heights = ix[keep], iy[keep], heights[keep]
+            accepted_pixel_indices = accepted_pixel_indices[keep]
+            if collect_debug:
+                accepted_u, accepted_v = accepted_u[keep], accepted_v[keep]
+            height_grid, observed_mask, grid_pixel_indices = _robust_height_grid(
+                ix,
+                iy,
+                heights,
+                accepted_pixel_indices,
+                shape=(geometry.height, geometry.width),
+            )
     debug_points = None
     if collect_debug:
         if raw_debug_points is None:
@@ -161,6 +182,7 @@ def height_grid_from_frame(
             candidate_xyz_map.reshape(-1, 3)[candidate_pixel_indices],
             candidate_pixel_indices,
         )
+        accepted_uvh = np.column_stack((accepted_u, accepted_v, heights))
         projected_points, sampled_projected_indices = sample_indexed_points(
             accepted_uvh,
             accepted_pixel_indices,

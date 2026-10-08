@@ -12,6 +12,7 @@ from cardboard_counter_v2.common.depth_projection import (
     scaled_intrinsics,
 )
 from cardboard_counter_v2.measurement.core.pallet_geometry import PalletProjectionGeometry
+from cardboard_counter_v2.measurement.core.high_surface_filter import HighSurfaceFilter
 from cardboard_counter_v2.measurement.runtime import MeasurementRuntime
 from cardboard_counter_v2.measurement.optimization.volume_fitting import (
     PreparedVolumeRuleOptimizer,
@@ -26,6 +27,7 @@ class PalletMeasurementPlan:
     settings: PalletSettings
     geometry: PalletProjectionGeometry
     reference_box: BoxClassSpec
+    high_surface_filter: HighSurfaceFilter
     box_optimizer: PreparedVolumeRuleOptimizer
 
 
@@ -109,6 +111,9 @@ def get_measurement_plan(
                     settings=item.model_copy(deep=True),
                     geometry=geometry,
                     reference_box=reference_box,
+                    high_surface_filter=HighSurfaceFilter.for_box_footprints(
+                        (box.width_mm, box.depth_mm) for box in selected_boxes
+                    ),
                     box_optimizer=PreparedVolumeRuleOptimizer(
                         single_items=[
                             VolumeItem(

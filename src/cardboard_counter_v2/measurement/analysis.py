@@ -50,6 +50,7 @@ def analyze_pallet(
         xyz,
         geometry=plan.geometry,
         surface_normals=surface_normals,
+        high_surface_filter=plan.high_surface_filter,
         collect_debug=collect_debug,
         raw_debug_points=raw_debug_points,
     )
